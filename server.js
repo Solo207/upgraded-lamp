@@ -668,13 +668,15 @@ function goToQuestion(index) {
 function closeModal()    { document.getElementById('submitModal').className = 'modal-overlay'; }
 function confirmSubmit() { closeModal(); doSubmit(); }
 
+const PENDING_KEY = 'quiz_pending_' + QUIZ_ID;
+
 async function doSubmit() {
   document.getElementById('questionCard').style.display = 'none';
   document.querySelector('.nav').style.display          = 'none';
   document.querySelector('.qnav-wrap').style.display    = 'none';
   document.getElementById('resultsCard').className      = 'results-card show';
-  document.getElementById('submitStatus').textContent   = 'Submitting…';
 
+  // Fill skipped questions as wrong
   QUESTIONS.forEach(q => {
     if (!results.find(r => r.number === q.number))
       results.push({ number: q.number, correct: false, selectedLetter: null, skipped: true });
@@ -692,13 +694,24 @@ async function doSubmit() {
   document.getElementById('statSkipped').textContent   = skipped;
   document.getElementById('statBookmarks').textContent = bookmarks.size;
 
-  // POST to server proxy — webhook URL never exposed to browser
   const payload = {
     title: TITLE, score: correct + '/' + QUESTIONS.length, score_percent: pct + '%',
     correct_answers: correct, wrong_answers: wrong, skipped_questions: skipped, total_questions: QUESTIONS.length,
     bookmarks: [...bookmarks].map(n => { const q = QUESTIONS.find(x => x.number === n); return { number: n, question: q?.question, answer_letter: q?.answer_letter, answer_text: q?.answer_text }; }),
     corrections: Object.values(corrections).filter(c => c.sent)
   };
+
+  // ── Save payload BEFORE attempting — quiz + state stay alive until confirmed ──
+  try { localStorage.setItem(PENDING_KEY, JSON.stringify(payload)); } catch(e) {}
+
+  await attemptSubmitAndFinalize(payload);
+}
+
+// Tries to POST to server. On success: clears everything. On failure: keeps
+// quiz + state alive and listens for reconnection to auto-retry.
+async function attemptSubmitAndFinalize(payload) {
+  const statusEl = document.getElementById('submitStatus');
+  if (statusEl) statusEl.textContent = 'Submitting…';
 
   let ok = false;
   try {
@@ -707,13 +720,58 @@ async function doSubmit() {
       credentials: 'same-origin', body: JSON.stringify(payload)
     });
     ok = r.ok;
-  } catch(e) {}
+  } catch(e) { ok = false; }
 
-  clearState();
-  await fetch('/quiz/' + QUIZ_ID, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
-  document.getElementById('submitStatus').textContent = ok
-    ? '✓ Results submitted successfully!'
-    : '⚠ Could not reach server — results saved locally.';
+  if (ok) {
+    // ── Success: clean up pending, state, and server quiz ──
+    try { localStorage.removeItem(PENDING_KEY); } catch(e) {}
+    clearState();
+    await fetch('/quiz/' + QUIZ_ID, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
+    if (statusEl) statusEl.textContent = '✓ Results submitted successfully!';
+  } else {
+    // ── Failure: quiz + state stay intact; retry when back online ──
+    if (statusEl) statusEl.innerHTML =
+      '📡 No connection — results saved locally.<br>' +
+      '<small id="retryMsg" style="color:var(--muted);font-size:.8rem;margin-top:4px;display:block;">' +
+      'Will submit automatically when you reconnect.</small>';
+    window.addEventListener('online', async function onReconnect() {
+      const retryMsg = document.getElementById('retryMsg');
+      if (retryMsg) retryMsg.textContent = 'Reconnected — retrying…';
+      try {
+        const raw = localStorage.getItem(PENDING_KEY);
+        if (raw) await attemptSubmitAndFinalize(JSON.parse(raw));
+      } catch(e) {
+        // Still failing — re-register listener
+        window.addEventListener('online', onReconnect, { once: true });
+      }
+    }, { once: true });
+  }
+}
+
+// Called on every page load. If a pending payload exists in localStorage,
+// skip rendering the quiz and go straight to the results screen, then retry.
+async function checkPending() {
+  try {
+    const raw = localStorage.getItem(PENDING_KEY);
+    if (!raw) return false;
+    const p = JSON.parse(raw);
+
+    // Show results card populated from cached payload
+    document.getElementById('questionCard').style.display = 'none';
+    document.querySelector('.nav').style.display          = 'none';
+    document.querySelector('.qnav-wrap').style.display    = 'none';
+    document.getElementById('resultsCard').className      = 'results-card show';
+
+    document.getElementById('scoreBig').textContent      = p.score         || '—';
+    document.getElementById('scorePercent').textContent  = p.score_percent  || '';
+    document.getElementById('statCorrect').textContent   = p.correct_answers   ?? '—';
+    document.getElementById('statWrong').textContent     = p.wrong_answers     ?? '—';
+    document.getElementById('statSkipped').textContent   = p.skipped_questions ?? '—';
+    document.getElementById('statBookmarks').textContent = (p.bookmarks || []).length;
+
+    await attemptSubmitAndFinalize(p);
+    return true;
+  } catch(e) { return false; }
 }
 
 function toggleBookmark() {
@@ -781,7 +839,9 @@ function renderQNav() {
 
 document.getElementById('bmIconBtn').onclick = toggleBookmark;
 loadState();
-render();
+// On load: if a pending submission exists, resume results screen and retry.
+// Otherwise render the quiz normally.
+checkPending().then(hasPending => { if (!hasPending) render(); });
 </script>
 </body>
 </html>`;
