@@ -626,12 +626,25 @@ function sendCorrection() {
   const corrText = opts.find(o => o.letter === selectedCorrection)?.text || '';
   const expl     = document.getElementById('correctionText').value.trim();
   corrections[q.number] = { question_number: q.number, question_text: q.question, original_answer_letter: q.answer_letter, original_answer_text: q.answer_text, user_correction_letter: selectedCorrection, user_correction_text: corrText, explanation: expl, sent: true };
+
+  // Auto-bookmark corrected questions
+  const wasBookmarked = bookmarks.has(q.number);
+  bookmarks.add(q.number);
   saveState();
+
   document.getElementById('correctionPanel').className = 'correction-panel';
   document.getElementById('disagreeWrap').className    = 'disagree-wrap';
   document.getElementById('correctionBarAnswer').textContent = 'Your answer: ' + selectedCorrection + ' — ' + corrText;
   document.getElementById('correctionBarExpl').textContent   = expl ? '"' + expl + '"' : '';
   document.getElementById('correctionBar').className = 'correction-bar show';
+
+  // Update bookmark UI only if the question wasn't already bookmarked
+  if (!wasBookmarked) {
+    document.getElementById('bmIconBtn').classList.add('active');
+    document.getElementById('bmCount').textContent = bookmarks.size;
+    renderBookmarkList();
+    renderQNav();
+  }
 }
 
 function undoCorrection() { delete corrections[QUESTIONS[current].number]; saveState(); render(); }
