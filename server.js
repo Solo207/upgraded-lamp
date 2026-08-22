@@ -12,7 +12,7 @@ app.use(cookieParser());
 // ── Config ────────────────────────────────────────────────────────────────────
 const STORE_FILE  = path.join(__dirname, 'quizzes.json');
 const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours                         
-const WEBHOOK_URL = 'https://smce-n8n.tx5mac.easypanel.host/webhook/bookmark'; // never sent to browser
+const WEBHOOK_URL = 'https://sb-n8n.rhat7s.easypanel.host/webhook/bookmark'; // never sent to browser
 
 // ── Atomic write queue (fixes race condition + file corruption) ───────────────
 let storeWriteQueue = Promise.resolve();
