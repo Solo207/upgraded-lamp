@@ -60,11 +60,20 @@ function setSessionCookie(res, quizId, token) {
 
 // POST /create-quiz
 app.post('/create-quiz', (req, res) => {
-  const { title, question, wa_id } = req.body;
+  const { title, question, wa_id, time } = req.body;
   if (!title || !question) return res.status(400).json({ error: 'Missing title or question fields' });
   let questions;
   try { questions = typeof question === 'string' ? JSON.parse(question) : question; }
   catch (e) { return res.status(400).json({ error: 'Invalid questions JSON' }); }
+
+  // (NEW) Exam timer: `time` is in minutes. 0 (or omitted) = no timer, quiz just
+  // stays valid until the normal 24h link expiry, exactly like before.
+  let timeLimitMinutes = 0;
+  if (time !== undefined && time !== null && time !== '') {
+    const t = Number(time);
+    if (!Number.isFinite(t) || t < 0) return res.status(400).json({ error: 'Invalid time value' });
+    timeLimitMinutes = Math.floor(t);
+  }
 
   const id    = uuidv4();
   const store = cleanup(loadStore());
@@ -72,6 +81,8 @@ app.post('/create-quiz', (req, res) => {
     title,
     questions,
     wa_id: wa_id || null,   // stored server-side only, never sent to browser
+    timeLimitMinutes,       // (NEW) exam duration in minutes, 0 = no timer
+    startedAt: null,        // (NEW) set the moment the student first opens the quiz
     createdAt: Date.now(),
     expiresAt: Date.now() + TTL_MS,
     claimed:   false
@@ -80,7 +91,7 @@ app.post('/create-quiz', (req, res) => {
 
   const host     = req.headers['x-forwarded-host'] || req.headers.host;
   const protocol = req.headers['x-forwarded-proto'] || 'http';
-  res.json({ link: `${protocol}://${host}/quiz/${id}`, id, expiresIn: '5 hours' });
+  res.json({ link: `${protocol}://${host}/quiz/${id}`, id, expiresIn: '5 hours', timeLimitMinutes });
 });
 
 // GET /quiz/:id  — serves quiz or claimed/expired page
@@ -96,6 +107,7 @@ app.get('/quiz/:id', (req, res) => {
     const token = uuidv4();
     store[req.params.id].claimed      = true;
     store[req.params.id].sessionToken = token;
+    store[req.params.id].startedAt    = Date.now(); // (NEW) exam clock starts on first open
     saveStore(store);
     setSessionCookie(res, req.params.id, token);
     return res.send(quizPage(req.params.id, store[req.params.id]));
@@ -229,9 +241,11 @@ function claimedPage(quizId) {
 
 // ── Quiz page ─────────────────────────────────────────────────────────────────
 function quizPage(id, quiz) {
-  const questionsJson = JSON.stringify(quiz.questions);
-  const titleJson     = JSON.stringify(quiz.title);
-  const tokenJson     = JSON.stringify(quiz.sessionToken);
+  const questionsJson   = JSON.stringify(quiz.questions);
+  const titleJson       = JSON.stringify(quiz.title);
+  const tokenJson       = JSON.stringify(quiz.sessionToken);
+  const timeLimitJson   = JSON.stringify(quiz.timeLimitMinutes || 0);   // (NEW)
+  const startedAtJson   = JSON.stringify(quiz.startedAt || Date.now()); // (NEW)
   // wa_id is intentionally NOT included here
   const FAVICON = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23090b18'/><circle cx='16' cy='16' r='10' fill='none' stroke='%233b82f6' stroke-width='2'/><polyline points='11,16 14.5,20 21,12' fill='none' stroke='%2322c55e' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>`;
 
@@ -251,7 +265,11 @@ function quizPage(id, quiz) {
       --bookmark:#f59e0b;--text:#e2e8f0;--muted:#64748b;
       --mono:'JetBrains Mono',monospace;
     }
-    body{background:var(--bg);color:var(--text);font-family:'Sora',sans-serif;min-height:100vh;overflow-x:hidden;}
+    /* (NEW) Copy / selection protection — text can't be selectively copied.
+       Inputs and textareas are explicitly exempted so the correction form still works. */
+    body{background:var(--bg);color:var(--text);font-family:'Sora',sans-serif;min-height:100vh;overflow-x:hidden;
+      -webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none;-webkit-touch-callout:none;}
+    textarea,input{-webkit-user-select:text;-moz-user-select:text;-ms-user-select:text;user-select:text;}
     #bgCanvas{position:fixed;inset:0;z-index:0;pointer-events:none;}
     .bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;
       background-image:linear-gradient(rgba(99,102,241,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(99,102,241,.06) 1px,transparent 1px);
@@ -267,6 +285,13 @@ function quizPage(id, quiz) {
     .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;padding-bottom:16px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:10px;}
     .title{font-family:var(--mono);font-size:.75rem;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;}
     .header-right{display:flex;gap:8px;align-items:center;}
+    /* (NEW) Exam timer chip */
+    .timer-chip{display:none;align-items:center;gap:6px;font-family:var(--mono);font-size:.82rem;font-weight:600;
+      color:var(--accent2);background:var(--surface2);border:1px solid var(--border);padding:6px 12px;border-radius:20px;}
+    .timer-chip.show{display:flex;}
+    .timer-chip.warning{color:var(--bookmark);border-color:var(--bookmark);}
+    .timer-chip.danger{color:var(--wrong);border-color:var(--wrong);animation:pulseDanger 1s infinite;}
+    @keyframes pulseDanger{0%,100%{opacity:1;}50%{opacity:.5;}}
     .bm-icon-btn{background:none;border:1px solid var(--border);color:var(--muted);width:38px;height:38px;border-radius:10px;font-size:1rem;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;}
     .bm-icon-btn:hover{border-color:var(--bookmark);color:var(--bookmark);}
     .bm-icon-btn.active{border-color:var(--bookmark);color:var(--bookmark);background:rgba(245,158,11,.08);}
@@ -382,6 +407,22 @@ function quizPage(id, quiz) {
     .stat-val.c{color:var(--correct);} .stat-val.w{color:var(--wrong);} .stat-val.s{color:var(--muted);} .stat-val.b{color:var(--bookmark);}
     .stat-label{font-size:.7rem;color:var(--muted);margin-top:2px;letter-spacing:.05em;}
     .submit-status{font-size:.87rem;color:var(--muted);padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;}
+    /* (NEW) Review answers button + screen */
+    .btn-review-open{margin-top:20px;width:100%;padding:14px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);color:var(--accent2);font-family:'Sora',sans-serif;font-size:.9rem;font-weight:600;cursor:pointer;transition:all .2s;}
+    .btn-review-open:hover{border-color:var(--accent);color:var(--text);}
+    .review-card{display:none;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px;margin-bottom:16px;}
+    .review-card.show{display:block;animation:slideIn .3s cubic-bezier(.4,0,.2,1);}
+    .review-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;}
+    .review-close-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:8px 14px;border-radius:10px;font-family:'Sora',sans-serif;font-size:.82rem;cursor:pointer;transition:all .2s;}
+    .review-close-btn:hover{border-color:var(--accent);color:var(--text);}
+    .review-progress{font-family:var(--mono);font-size:.75rem;color:var(--muted);}
+    .review-status-row{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
+    .review-status{font-family:var(--mono);font-size:.7rem;font-weight:600;padding:5px 12px;border-radius:20px;letter-spacing:.05em;text-transform:uppercase;}
+    .review-status.status-correct{background:rgba(34,197,94,.1);color:var(--correct);border:1px solid rgba(34,197,94,.3);}
+    .review-status.status-wrong{background:rgba(239,68,68,.1);color:var(--wrong);border:1px solid rgba(239,68,68,.3);}
+    .review-status.status-skip{background:rgba(100,116,139,.1);color:var(--muted);border:1px solid var(--border);}
+    .review-bookmark-tag{display:none;align-items:center;gap:4px;font-size:.75rem;color:var(--bookmark);}
+    .review-explanation{display:none;margin-top:16px;padding:14px 18px;border-radius:10px;font-size:.88rem;line-height:1.6;background:var(--surface2);border:1px solid var(--border);color:var(--muted);}
     @media(max-width:520px){
       .container{padding:16px 12px 200px;}
       .q-text{font-size:.95rem;} .question-card{padding:20px 16px;} .option{font-size:.86rem;padding:12px 14px;}
@@ -389,6 +430,7 @@ function quizPage(id, quiz) {
       .stat{padding:10px 12px;min-width:66px;} .stat-val{font-size:1.1rem;}
       .qnav-chip{width:36px;height:36px;font-size:.75rem;}
       .btn{font-size:.85rem;padding:13px;} .btn-prev{min-width:80px;} .modal-box{padding:24px 18px;}
+      .timer-chip{font-size:.75rem;padding:5px 10px;} .review-card{padding:20px 16px;}
     }
     @media(max-width:360px){.qnav-chip{width:32px;height:32px;font-size:.7rem;}}
   </style>
@@ -403,6 +445,7 @@ function quizPage(id, quiz) {
   <div class="header">
     <div class="title" id="quizTitle"></div>
     <div class="header-right">
+      <div class="timer-chip" id="timerChip"><span>⏱</span><span id="timerText">--:--</span></div>
       <button class="bm-icon-btn" id="bmIconBtn" title="Bookmark this question">🔖</button>
       <button class="bm-list-btn" onclick="toggleBookmarkList()">📋 <span id="bmCount">0</span> saved</button>
     </div>
@@ -471,6 +514,26 @@ function quizPage(id, quiz) {
       <div class="stat"><div class="stat-val b" id="statBookmarks">0</div><div class="stat-label">BOOKMARKED</div></div>
     </div>
     <div class="submit-status" id="submitStatus">Submitting…</div>
+    <button class="btn-review-open" id="reviewOpenBtn" onclick="openReview()">📝 Review Answers</button>
+  </div>
+  <div class="review-card" id="reviewCard">
+    <div class="review-top">
+      <button class="review-close-btn" onclick="closeReview()">← Back to Results</button>
+      <div class="review-progress" id="reviewProgress"></div>
+    </div>
+    <div class="review-status-row">
+      <span class="review-status" id="reviewStatus"></span>
+      <span class="review-bookmark-tag" id="reviewBookmarkTag">🔖 Bookmarked</span>
+    </div>
+    <div class="q-number" id="reviewQNum"></div>
+    <div class="q-text" id="reviewQText"></div>
+    <div class="options" id="reviewOptions"></div>
+    <div class="review-explanation" id="reviewExplanation"></div>
+    <div class="correction-bar" id="reviewCorrection" style="display:none"></div>
+    <div class="nav">
+      <button class="btn btn-prev" id="reviewPrevBtn" onclick="reviewPrev()">← Prev</button>
+      <button class="btn btn-next skip-mode" id="reviewNextBtn" onclick="reviewNext()">Next →</button>
+    </div>
   </div>
 </div>
 
@@ -492,11 +555,18 @@ const TITLE      = ${titleJson};
 const QUESTIONS  = ${questionsJson};
 const SESS_TOKEN = ${tokenJson};
 
+// (NEW) Exam timer config — TIME_LIMIT_MIN of 0 means no timer at all.
+const TIME_LIMIT_MIN = ${timeLimitJson};
+const STARTED_AT     = ${startedAtJson};
+const HAS_TIMER      = TIME_LIMIT_MIN > 0;
+const DEADLINE       = STARTED_AT + TIME_LIMIT_MIN * 60000;
+
 // Store session token for cookie recovery — POST /quiz/:id/recover keeps it out of URLs
 localStorage.setItem('qt_' + QUIZ_ID, SESS_TOKEN);
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let current = 0, answered = false, bookmarks = new Set(), corrections = {}, results = [], selectedCorrection = null;
+let current = 0, answered = false, bookmarks = new Set(), corrections = {}, results = [],
+    selectedCorrection = null, reviewIndex = 0, timerInterval = null, submitting = false;
 const LETTERS = ['a','b','c','d','e'];
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -518,6 +588,37 @@ function clearState() { try { localStorage.removeItem(STATE_KEY); } catch(e) {} 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function getOptions(q) {
   return LETTERS.map(l => ({ letter: l.toUpperCase(), text: q['option_' + l] })).filter(o => o.text?.trim());
+}
+
+// ── Exam timer (NEW) ──────────────────────────────────────────────────────────
+function formatTime(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(total / 60), s = total % 60;
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+function hideTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  const chip = document.getElementById('timerChip');
+  if (chip) chip.classList.remove('show', 'warning', 'danger');
+}
+function tickTimer() {
+  const remaining = DEADLINE - Date.now();
+  const chip = document.getElementById('timerChip'), text = document.getElementById('timerText');
+  if (remaining <= 0) {
+    text.textContent = '00:00';
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    if (!submitting) doSubmit(); // time's up — submit right away, unanswered count as wrong
+    return;
+  }
+  text.textContent = formatTime(remaining);
+  chip.classList.toggle('warning', remaining <= 5 * 60000 && remaining > 60000);
+  chip.classList.toggle('danger', remaining <= 60000);
+}
+function startTimer() {
+  if (!HAS_TIMER || submitting) return;
+  document.getElementById('timerChip').classList.add('show');
+  tickTimer();
+  timerInterval = setInterval(tickTimer, 1000);
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -684,6 +785,10 @@ function confirmSubmit() { closeModal(); doSubmit(); }
 const PENDING_KEY = 'quiz_pending_' + QUIZ_ID;
 
 async function doSubmit() {
+  if (submitting) return; // guards against timer + manual submit racing each other
+  submitting = true;
+  hideTimer();
+
   document.getElementById('questionCard').style.display = 'none';
   document.querySelector('.nav').style.display          = 'none';
   document.querySelector('.qnav-wrap').style.display    = 'none';
@@ -767,6 +872,8 @@ async function checkPending() {
   try {
     const raw = localStorage.getItem(PENDING_KEY);
     if (!raw) return false;
+    submitting = true;
+    hideTimer();
     const p = JSON.parse(raw);
 
     // Show results card populated from cached payload
@@ -821,6 +928,71 @@ function renderQNav() {
   }).join('');
 }
 
+// ── Review screen (NEW) — walk through every question after submitting,
+// with status, correct answer, explanation, bookmark flag and any correction. ──
+function openReview() {
+  document.getElementById('resultsCard').className = 'results-card';
+  document.getElementById('reviewCard').className  = 'review-card show';
+  reviewIndex = 0;
+  renderReview();
+}
+function closeReview() {
+  document.getElementById('reviewCard').className  = 'review-card';
+  document.getElementById('resultsCard').className = 'results-card show';
+}
+function reviewGoTo(i) {
+  reviewIndex = Math.max(0, Math.min(QUESTIONS.length - 1, i));
+  renderReview();
+}
+function reviewPrev() { reviewGoTo(reviewIndex - 1); }
+function reviewNext() { reviewGoTo(reviewIndex + 1); }
+
+function renderReview() {
+  const q = QUESTIONS[reviewIndex];
+  const r = results.find(x => x.number === q.number);
+  const corr = corrections[q.number]?.sent ? corrections[q.number] : null;
+  const isBookmarked = bookmarks.has(q.number);
+
+  document.getElementById('reviewProgress').textContent = 'Question ' + (reviewIndex + 1) + ' / ' + QUESTIONS.length;
+  document.getElementById('reviewQNum').textContent     = 'QUESTION ' + q.number;
+  document.getElementById('reviewQText').textContent    = q.question;
+
+  let statusLabel = 'Skipped', statusClass = 'status-skip';
+  if (r && !r.skipped) { statusLabel = r.correct ? 'Correct' : 'Wrong'; statusClass = r.correct ? 'status-correct' : 'status-wrong'; }
+  const statusEl = document.getElementById('reviewStatus');
+  statusEl.textContent = statusLabel;
+  statusEl.className   = 'review-status ' + statusClass;
+
+  document.getElementById('reviewBookmarkTag').style.display = isBookmarked ? 'inline-flex' : 'none';
+
+  const optsContainer = document.getElementById('reviewOptions');
+  optsContainer.innerHTML = '';
+  getOptions(q).forEach(o => {
+    const div = document.createElement('div');
+    div.className = 'option disabled';
+    if (o.letter === q.answer_letter) div.classList.add('correct');
+    else if (r && o.letter === r.selectedLetter && !r.correct) div.classList.add('wrong');
+    div.innerHTML = '<span class="opt-letter">' + o.letter + '</span><span>' + o.text + '</span>';
+    optsContainer.appendChild(div);
+  });
+
+  const explEl = document.getElementById('reviewExplanation');
+  if (q.explanation) { explEl.style.display = 'block'; explEl.textContent = 'Explanation: ' + q.explanation; }
+  else { explEl.style.display = 'none'; explEl.textContent = ''; }
+
+  const corrEl = document.getElementById('reviewCorrection');
+  if (corr) {
+    corrEl.style.display = 'block';
+    corrEl.innerHTML =
+      '<div class="correction-bar-label">✏️ YOUR CORRECTION</div>' +
+      '<div class="correction-bar-answer">' + corr.user_correction_letter + ' — ' + corr.user_correction_text + '</div>' +
+      (corr.explanation ? '<div class="correction-bar-expl">"' + corr.explanation + '"</div>' : '');
+  } else { corrEl.style.display = 'none'; corrEl.innerHTML = ''; }
+
+  document.getElementById('reviewPrevBtn').disabled = reviewIndex === 0;
+  document.getElementById('reviewNextBtn').disabled = reviewIndex === QUESTIONS.length - 1;
+}
+
 (function initBackground() {
   const canvas = document.getElementById('bgCanvas'), ctx = canvas.getContext('2d');
   const mobile = window.innerWidth < 600, N = mobile ? 40 : 75;
@@ -850,11 +1022,38 @@ function renderQNav() {
   resize(); draw();
 })();
 
+// ── Copy / selection protection (NEW) ─────────────────────────────────────────
+// Blocks copy, right-click-copy, and text selection on quiz content so
+// questions/answers can't be selectively copied. Inputs/textareas are exempt
+// so the correction form still works normally.
+['copy', 'contextmenu'].forEach(evt => {
+  document.addEventListener(evt, function(e) {
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+    e.preventDefault();
+  });
+});
+document.addEventListener('selectstart', function(e) {
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+  e.preventDefault();
+});
+
 document.getElementById('bmIconBtn').onclick = toggleBookmark;
 loadState();
-// On load: if a pending submission exists, resume results screen and retry.
-// Otherwise render the quiz normally.
-checkPending().then(hasPending => { if (!hasPending) render(); });
+// On load: resume a pending submission if one exists; otherwise, if the exam
+// clock already ran out while the tab was closed, auto-submit right away —
+// else render the quiz normally and start the countdown (if any).
+checkPending().then(hasPending => {
+  if (hasPending) return;
+  if (HAS_TIMER && Date.now() >= DEADLINE) {
+    submitting = true;
+    doSubmit();
+  } else {
+    render();
+    startTimer();
+  }
+});
 </script>
 </body>
 </html>`;
