@@ -344,10 +344,6 @@ function quizPage(id, quiz) {
     .bookmark-item:hover{background:var(--surface2);}
     .bookmark-item span{color:var(--text);}
     .no-bookmarks{padding:16px;color:var(--muted);font-size:.85rem;text-align:center;}
-    .review-banner{display:none;align-items:center;justify-content:space-between;gap:10px;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:10px 16px;margin-bottom:14px;font-size:.82rem;color:var(--accent2);}
-    .review-banner.show{display:flex;}
-    .review-banner button{background:none;border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:8px;font-family:'Sora',sans-serif;font-size:.78rem;cursor:pointer;transition:all .2s;flex-shrink:0;}
-    .review-banner button:hover{border-color:var(--accent);color:var(--text);}
     .question-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px;margin-bottom:16px;}
     .q-number{font-family:var(--mono);font-size:.7rem;color:var(--accent);letter-spacing:.1em;margin-bottom:12px;}
     .q-text{font-size:1.05rem;font-weight:400;line-height:1.65;color:var(--text);}
@@ -359,6 +355,8 @@ function quizPage(id, quiz) {
     .option.disabled{cursor:default;pointer-events:none;}
     .option.correct{border-color:var(--correct);background:rgba(34,197,94,.08);color:var(--correct);}
     .option.wrong{border-color:var(--wrong);background:rgba(239,68,68,.08);color:var(--wrong);}
+    .option.selected{border-color:var(--accent);background:rgba(59,130,246,.08);color:var(--text);}
+    .option.selected .opt-letter{background:var(--accent);color:#fff;}
     .opt-letter{font-family:var(--mono);font-size:.72rem;font-weight:600;width:26px;height:26px;border-radius:6px;background:var(--border);color:var(--muted);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .18s;}
     .option.correct .opt-letter{background:var(--correct);color:#fff;}
     .option.wrong .opt-letter{background:var(--wrong);color:#fff;}
@@ -416,13 +414,14 @@ function quizPage(id, quiz) {
     .qnav-legend{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
     .qnav-legend-item{display:flex;align-items:center;gap:5px;font-size:.7rem;color:var(--muted);}
     .qnav-dot{width:10px;height:10px;border-radius:3px;}
-    .qnav-dot.d-current{background:rgba(59,130,246,.6);} .qnav-dot.d-correct{background:rgba(34,197,94,.6);} .qnav-dot.d-wrong{background:rgba(239,68,68,.6);} .qnav-dot.d-unanswered{background:var(--border);}
+    .qnav-dot.d-current{background:rgba(59,130,246,.6);} .qnav-dot.d-correct{background:rgba(34,197,94,.6);} .qnav-dot.d-wrong{background:rgba(239,68,68,.6);} .qnav-dot.d-unanswered{background:var(--border);} .qnav-dot.d-answered{background:rgba(59,130,246,.35);}
     .qnav-grid{display:flex;flex-wrap:wrap;gap:8px;}
     .qnav-chip{width:40px;height:40px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-family:var(--mono);font-size:.8rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;position:relative;}
     .qnav-chip:hover{border-color:var(--accent);color:var(--text);}
     .qnav-chip.qn-current{border-color:var(--accent);color:var(--accent);background:rgba(59,130,246,.12);}
     .qnav-chip.qn-correct{border-color:var(--correct);background:rgba(34,197,94,.1);color:var(--correct);}
     .qnav-chip.qn-wrong{border-color:var(--wrong);background:rgba(239,68,68,.1);color:var(--wrong);}
+    .qnav-chip.qn-answered{border-color:rgba(59,130,246,.45);background:rgba(59,130,246,.06);color:var(--accent2);}
     .qnav-chip.qn-bookmarked::after{content:'•';position:absolute;top:2px;right:4px;color:var(--bookmark);font-size:.65rem;line-height:1;}
     .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;display:none;align-items:center;justify-content:center;padding:20px;}
     .modal-overlay.show{display:flex;animation:fadeIn .2s ease;}
@@ -483,10 +482,6 @@ function quizPage(id, quiz) {
     <div class="bookmark-list-header">🔖 BOOKMARKED QUESTIONS</div>
     <div id="bookmarkItems"><div class="no-bookmarks">No bookmarks yet</div></div>
   </div>
-  <div class="review-banner" id="reviewBanner">
-    <span>📝 Reviewing your submitted quiz</span>
-    <button onclick="exitReviewToResults()">← Back to Results</button>
-  </div>
   <div class="question-card" id="questionCard">
     <div class="q-number" id="qNum"></div>
     <div class="q-text" id="qText"></div>
@@ -524,8 +519,9 @@ function quizPage(id, quiz) {
       <div class="qnav-label">TAP A NUMBER TO JUMP</div>
       <div class="qnav-legend">
         <div class="qnav-legend-item"><div class="qnav-dot d-current"></div>Current</div>
-        <div class="qnav-legend-item"><div class="qnav-dot d-correct"></div>Correct</div>
-        <div class="qnav-legend-item"><div class="qnav-dot d-wrong"></div>Wrong</div>
+        <div class="qnav-legend-item" id="legendCorrect"><div class="qnav-dot d-correct"></div>Correct</div>
+        <div class="qnav-legend-item" id="legendWrong"><div class="qnav-dot d-wrong"></div>Wrong</div>
+        <div class="qnav-legend-item" id="legendAnswered" style="display:none;"><div class="qnav-dot d-answered"></div>Answered</div>
         <div class="qnav-legend-item"><div class="qnav-dot d-unanswered"></div>Unanswered</div>
         <div class="qnav-legend-item" style="color:var(--bookmark)">• Bookmarked</div>
       </div>
@@ -542,7 +538,7 @@ function quizPage(id, quiz) {
       <div class="stat"><div class="stat-val s" id="statSkipped">0</div><div class="stat-label">SKIPPED</div></div>
       <div class="stat"><div class="stat-val b" id="statBookmarks">0</div><div class="stat-label">BOOKMARKED</div></div>
     </div>
-    <button class="btn-review" id="reviewBtn" onclick="enterReview()">📝 Review Answers</button>
+    ${quiz.timeMinutes > 0 ? '<button class="btn-review" id="reviewBtn" onclick="enterReview()">📝 Review Answers</button>' : ''}
     <div class="submit-status" id="submitStatus">Submitting…</div>
   </div>
 </div>
@@ -565,19 +561,26 @@ const TITLE        = ${titleJson};
 const QUESTIONS    = ${questionsJson};
 const SESS_TOKEN   = ${tokenJson};
 const EXAM_ENDS_AT = ${examEndsAtJs};
+// EXAM_MODE (a timer was set) means the live quiz is "blind": no correct/wrong
+// reveal, no feedback text, no disagree-with-answer — only Change Answer and
+// bookmarking stay active. Once finalized (submitted), everything reveals,
+// via Review for timed quizzes.
+const EXAM_MODE = !!EXAM_ENDS_AT;
 
 // Store session token for cookie recovery — POST /quiz/:id/recover keeps it out of URLs
 localStorage.setItem('qt_' + QUIZ_ID, SESS_TOKEN);
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let current = 0, answered = false, bookmarks = new Set(), corrections = {}, results = [], selectedCorrection = null;
-let reviewMode = false, finalized = false, examTimerInterval = null;
+let reviewMode = false, reviewDirty = false, finalized = false, examTimerInterval = null;
 const LETTERS = ['a','b','c','d','e'];
 
 // ── Persistence ───────────────────────────────────────────────────────────────
+// reviewMode + the current question index are saved too, so refreshing mid-review
+// resumes on the same question instead of resetting to the results screen.
 const STATE_KEY = 'quiz_state_' + QUIZ_ID;
 function saveState() {
-  try { localStorage.setItem(STATE_KEY, JSON.stringify({ current, results, bookmarks: [...bookmarks], corrections })); } catch(e) {}
+  try { localStorage.setItem(STATE_KEY, JSON.stringify({ current, results, bookmarks: [...bookmarks], corrections, reviewMode, reviewDirty })); } catch(e) {}
 }
 function loadState() {
   try {
@@ -586,6 +589,8 @@ function loadState() {
     results = Array.isArray(s.results) ? s.results : [];
     bookmarks = new Set(Array.isArray(s.bookmarks) ? s.bookmarks : []);
     corrections = (s.corrections && typeof s.corrections === 'object') ? s.corrections : {};
+    reviewMode = !!s.reviewMode;
+    reviewDirty = !!s.reviewDirty;
   } catch(e) {}
 }
 function clearState() { try { localStorage.removeItem(STATE_KEY); } catch(e) {} }
@@ -649,10 +654,12 @@ function render() {
   document.getElementById('prevBtn').disabled = current === 0;
   const nextBtn = document.getElementById('nextBtn');
   if (reviewMode) {
-    nextBtn.textContent = isLast ? '✓ Back to Results' : 'Next →';
+    nextBtn.textContent = isLast ? (reviewDirty ? '📤 Submit Bookmarks & Corrections' : '✓ Back to Results') : 'Next →';
   } else {
     nextBtn.textContent = isLast ? 'Submit & Finish 🎯' : 'Next →';
   }
+
+  const blind = EXAM_MODE && !finalized;
 
   const opts = getOptions(q), container = document.getElementById('options');
   container.innerHTML = '';
@@ -662,8 +669,12 @@ function render() {
     btn.innerHTML = '<span class="opt-letter">' + o.letter + '</span><span>' + o.text + '</span>';
     if (prevResult) {
       btn.classList.add('disabled');
-      if (o.letter === q.answer_letter) btn.classList.add('correct');
-      else if (o.letter === prevResult.selectedLetter && !prevResult.correct) btn.classList.add('wrong');
+      if (blind) {
+        if (o.letter === prevResult.selectedLetter) btn.classList.add('selected');
+      } else {
+        if (o.letter === q.answer_letter) btn.classList.add('correct');
+        else if (o.letter === prevResult.selectedLetter && !prevResult.correct) btn.classList.add('wrong');
+      }
     } else { btn.onclick = () => selectOption(o.letter, btn); }
     container.appendChild(btn);
   });
@@ -671,7 +682,10 @@ function render() {
   if (prevResult) {
     answered = true; nextBtn.classList.remove('skip-mode');
     const fb = document.getElementById('feedback');
-    if (prevResult.skipped) {
+    if (blind) {
+      fb.className = 'feedback';
+      fb.textContent = '';
+    } else if (prevResult.skipped) {
       fb.className = 'feedback show wrong-fb';
       fb.textContent = '⦸ Not answered — the correct answer is ' + q.answer_letter + ': ' + q.answer_text + (q.explanation ? ' — ' + q.explanation : '');
     } else {
@@ -682,8 +696,10 @@ function render() {
     }
     if (!finalized) {
       document.getElementById('changeAnswerWrap').className = 'change-answer-wrap show';
-      if (!prevResult.correct && !sentCorr) document.getElementById('disagreeWrap').className = 'disagree-wrap show';
     }
+    // Bookmarking and "disagree with answer" stay active after submission/finalization
+    // (review), but disagree stays hidden during a blind, still-in-progress timed exam.
+    if (!blind && !prevResult.correct && !sentCorr) document.getElementById('disagreeWrap').className = 'disagree-wrap show';
   } else { answered = false; nextBtn.classList.add('skip-mode'); }
 
   if (sentCorr) {
@@ -698,20 +714,27 @@ function selectOption(letter, btn) {
   if (answered) return;
   answered = true;
   const q = QUESTIONS[current], isLast = current === QUESTIONS.length - 1, correct = letter === q.answer_letter;
+  const blind = EXAM_MODE && !finalized;
   document.querySelectorAll('.option').forEach(b => {
     b.classList.add('disabled');
-    if (b.querySelector('.opt-letter').textContent === q.answer_letter) b.classList.add('correct');
+    if (!blind && b.querySelector('.opt-letter').textContent === q.answer_letter) b.classList.add('correct');
   });
-  if (!correct) btn.classList.add('wrong');
   const fb = document.getElementById('feedback');
-  fb.className = 'feedback show ' + (correct ? 'correct-fb' : 'wrong-fb');
-  fb.textContent = correct
-    ? '✓ Correct!' + (q.explanation ? ' ' + q.explanation : '')
-    : '✗ The correct answer is ' + q.answer_letter + ': ' + q.answer_text + (q.explanation ? ' — ' + q.explanation : '');
+  if (blind) {
+    btn.classList.add('selected');
+    fb.className = 'feedback';
+    fb.textContent = '';
+  } else {
+    if (!correct) btn.classList.add('wrong');
+    fb.className = 'feedback show ' + (correct ? 'correct-fb' : 'wrong-fb');
+    fb.textContent = correct
+      ? '✓ Correct!' + (q.explanation ? ' ' + q.explanation : '')
+      : '✗ The correct answer is ' + q.answer_letter + ': ' + q.answer_text + (q.explanation ? ' — ' + q.explanation : '');
+  }
   results = results.filter(r => r.number !== q.number);
   results.push({ number: q.number, correct, selectedLetter: letter });
   document.getElementById('changeAnswerWrap').className = 'change-answer-wrap show';
-  if (!correct && !corrections[q.number]?.sent) document.getElementById('disagreeWrap').className = 'disagree-wrap show';
+  if (!blind && !correct && !corrections[q.number]?.sent) document.getElementById('disagreeWrap').className = 'disagree-wrap show';
   const nextBtn = document.getElementById('nextBtn');
   nextBtn.classList.remove('skip-mode');
   nextBtn.textContent = isLast ? 'Submit & Finish 🎯' : 'Next →';
@@ -742,6 +765,7 @@ function sendCorrection() {
   const corrText = opts.find(o => o.letter === selectedCorrection)?.text || '';
   const expl     = document.getElementById('correctionText').value.trim();
   corrections[q.number] = { question_number: q.number, question_text: q.question, original_answer_letter: q.answer_letter, original_answer_text: q.answer_text, user_correction_letter: selectedCorrection, user_correction_text: corrText, explanation: expl, sent: true };
+  if (reviewMode) reviewDirty = true;
 
   // Auto-bookmark corrected questions
   const wasBookmarked = bookmarks.has(q.number);
@@ -761,9 +785,14 @@ function sendCorrection() {
     renderBookmarkList();
     renderQNav();
   }
+  if (reviewMode) render(); // refresh the Next/Submit button label
 }
 
-function undoCorrection() { delete corrections[QUESTIONS[current].number]; saveState(); render(); }
+function undoCorrection() {
+  delete corrections[QUESTIONS[current].number];
+  if (reviewMode) reviewDirty = true;
+  saveState(); render();
+}
 
 function animateToQuestion() {
   const card = document.getElementById('questionCard');
@@ -774,7 +803,10 @@ function animateToQuestion() {
 function nextQuestion() {
   const isLast = current === QUESTIONS.length - 1;
   if (reviewMode) {
-    if (isLast) { exitReviewToResults(); return; }
+    if (isLast) {
+      if (reviewDirty) submitReviewUpdates(); else exitReviewToResults();
+      return;
+    }
     current++; saveState(); animateToQuestion();
     return;
   }
@@ -803,75 +835,110 @@ function closeModal()    { document.getElementById('submitModal').className = 'm
 function confirmSubmit() { closeModal(); doSubmit(); }
 
 // ── Review mode ───────────────────────────────────────────────────────────────
+// Only meaningful for timed (EXAM_MODE) quizzes — untimed quizzes already show
+// full feedback live, so once submitted there's nothing left to review.
 function enterReview() {
+  if (!EXAM_MODE) return;
   reviewMode = true;
+  reviewDirty = false;
+  current = 0;
+  saveState();
   document.getElementById('resultsCard').classList.remove('show');
-  document.getElementById('reviewBanner').classList.add('show');
   document.getElementById('questionCard').style.display = '';
   document.querySelector('.nav').style.display = '';
   document.querySelector('.qnav-wrap').style.display = '';
-  current = 0;
   render();
 }
+// Leaves review WITHOUT sending anything to the server (reached from the last
+// review question when nothing was changed this session).
 function exitReviewToResults() {
   reviewMode = false;
-  document.getElementById('reviewBanner').classList.remove('show');
-  document.getElementById('questionCard').style.display = 'none';
-  document.querySelector('.nav').style.display = 'none';
-  document.querySelector('.qnav-wrap').style.display = 'none';
-  document.getElementById('resultsCard').classList.add('show');
+  reviewDirty = false;
+  saveState();
+  populateResultsDom(getStats());
+  showResultsScreen();
 }
 
 // ── Submission ────────────────────────────────────────────────────────────────
 const PENDING_KEY = 'quiz_pending_' + QUIZ_ID;
 
-function computeAndShowResults() {
-  document.getElementById('questionCard').style.display = 'none';
-  document.querySelector('.nav').style.display          = 'none';
-  document.querySelector('.qnav-wrap').style.display    = 'none';
-  document.getElementById('reviewBanner').classList.remove('show');
-  document.getElementById('resultsCard').className      = 'results-card show';
-
-  const et = document.getElementById('examTimer');
-  if (et) et.classList.remove('show');
-  if (examTimerInterval) { clearInterval(examTimerInterval); examTimerInterval = null; }
-
-  // Fill unanswered questions as skipped (counts as wrong for scoring)
+// Fills any still-missing questions in as skipped (only relevant the first time,
+// pre-submission) and returns the current score breakdown.
+function getStats() {
   QUESTIONS.forEach(q => {
     if (!results.find(r => r.number === q.number))
       results.push({ number: q.number, correct: false, selectedLetter: null, skipped: true });
   });
-
   const correct = results.filter(r => r.correct).length;
   const skipped = results.filter(r => r.skipped).length;
   const wrong   = results.filter(r => !r.correct && !r.skipped).length;
   const pct     = Math.round(correct / QUESTIONS.length * 100);
-
-  document.getElementById('scoreBig').textContent      = correct + ' / ' + QUESTIONS.length;
-  document.getElementById('scorePercent').textContent  = pct + '% Correct';
-  document.getElementById('statCorrect').textContent   = correct;
-  document.getElementById('statWrong').textContent     = wrong;
-  document.getElementById('statSkipped').textContent   = skipped;
-  document.getElementById('statBookmarks').textContent = bookmarks.size;
-
   return { correct, wrong, skipped, pct };
 }
 
-async function doSubmit() {
-  finalized = true;
-  const stats = computeAndShowResults();
+function populateResultsDom(stats) {
+  document.getElementById('scoreBig').textContent      = stats.correct + ' / ' + QUESTIONS.length;
+  document.getElementById('scorePercent').textContent  = stats.pct + '% Correct';
+  document.getElementById('statCorrect').textContent   = stats.correct;
+  document.getElementById('statWrong').textContent     = stats.wrong;
+  document.getElementById('statSkipped').textContent   = stats.skipped;
+  document.getElementById('statBookmarks').textContent = bookmarks.size;
+}
 
-  const payload = {
+function showResultsScreen() {
+  document.getElementById('questionCard').style.display = 'none';
+  document.querySelector('.nav').style.display          = 'none';
+  document.querySelector('.qnav-wrap').style.display    = 'none';
+  document.getElementById('resultsCard').className      = 'results-card show';
+  const et = document.getElementById('examTimer');
+  if (et) et.classList.remove('show');
+  if (examTimerInterval) { clearInterval(examTimerInterval); examTimerInterval = null; }
+}
+
+function computeAndShowResults() {
+  const stats = getStats();
+  populateResultsDom(stats);
+  showResultsScreen();
+  return stats;
+}
+
+// Builds the /submit/:id payload. Shape is identical whether this is the first
+// submission or a later re-submit of updated bookmarks/corrections from review.
+function buildPayload(stats) {
+  return {
     title: TITLE, score: stats.correct + '/' + QUESTIONS.length, score_percent: stats.pct + '%',
     correct_answers: stats.correct, wrong_answers: stats.wrong, skipped_questions: stats.skipped, total_questions: QUESTIONS.length,
     bookmarks: [...bookmarks].map(n => { const q = QUESTIONS.find(x => x.number === n); return { number: n, question: q?.question, answer_letter: q?.answer_letter, answer_text: q?.answer_text }; }),
     corrections: Object.values(corrections).filter(c => c.sent),
     full_results: results
   };
+}
+
+async function doSubmit() {
+  finalized = true;
+  const stats = computeAndShowResults();
+  const payload = buildPayload(stats);
 
   // ── Save payload BEFORE attempting — quiz + state stay alive until confirmed ──
   try { localStorage.setItem(PENDING_KEY, JSON.stringify(payload)); } catch(e) {}
 
+  await attemptSubmitAndFinalize(payload);
+}
+
+// Reached from the last review question when reviewDirty is true. Re-posts to
+// the SAME /submit/:id endpoint with the SAME payload shape as the original
+// submission — just with the updated bookmarks/corrections — then returns to
+// the results screen.
+async function submitReviewUpdates() {
+  const stats = getStats();
+  const payload = buildPayload(stats);
+  reviewMode = false;
+  reviewDirty = false;
+  saveState();
+  populateResultsDom(stats);
+  showResultsScreen();
+
+  try { localStorage.setItem(PENDING_KEY, JSON.stringify(payload)); } catch(e) {}
   await attemptSubmitAndFinalize(payload);
 }
 
@@ -926,7 +993,8 @@ async function checkPending() {
     if (Array.isArray(p.full_results) && p.full_results.length) results = p.full_results;
     if (Array.isArray(p.bookmarks)) bookmarks = new Set(p.bookmarks.map(b => b.number));
 
-    computeAndShowResults();
+    populateResultsDom(getStats());
+    showResultsScreen();
     await attemptSubmitAndFinalize(p);
     return true;
   } catch(e) { return false; }
@@ -935,9 +1003,11 @@ async function checkPending() {
 function toggleBookmark() {
   const q = QUESTIONS[current];
   bookmarks.has(q.number) ? bookmarks.delete(q.number) : bookmarks.add(q.number);
+  if (reviewMode) reviewDirty = true;
   document.getElementById('bmCount').textContent = bookmarks.size;
   document.getElementById('bmIconBtn').classList.toggle('active', bookmarks.has(q.number));
   renderBookmarkList(); renderQNav(); saveState();
+  if (reviewMode) render(); // refresh the Next/Submit button label
 }
 function toggleBookmarkList() { document.getElementById('bookmarkList').classList.toggle('show'); }
 function renderBookmarkList() {
@@ -955,12 +1025,22 @@ function toggleQNav() {
 }
 function renderQNav() {
   const grid = document.getElementById('qnavGrid'); if (!grid) return;
+  const blind = EXAM_MODE && !finalized;
+
+  const legendCorrect  = document.getElementById('legendCorrect');
+  const legendWrong    = document.getElementById('legendWrong');
+  const legendAnswered = document.getElementById('legendAnswered');
+  if (legendCorrect)  legendCorrect.style.display  = blind ? 'none' : '';
+  if (legendWrong)    legendWrong.style.display    = blind ? 'none' : '';
+  if (legendAnswered) legendAnswered.style.display = blind ? '' : 'none';
+
   grid.innerHTML = QUESTIONS.map((q, i) => {
     const r = results.find(r => r.number === q.number && !r.skipped);
     let cls = 'qnav-chip';
-    if (i === current)          cls += ' qn-current';
-    else if (r && r.correct)    cls += ' qn-correct';
-    else if (r && !r.correct)   cls += ' qn-wrong';
+    if (i === current) cls += ' qn-current';
+    else if (blind) { if (r) cls += ' qn-answered'; }
+    else if (r && r.correct)  cls += ' qn-correct';
+    else if (r && !r.correct) cls += ' qn-wrong';
     if (bookmarks.has(q.number)) cls += ' qn-bookmarked';
     return '<button class="' + cls + '" onclick="goToQuestion(' + i + ')" title="Q' + q.number + '">' + q.number + '</button>';
   }).join('');
@@ -1009,12 +1089,28 @@ const SERVER_CORRECTIONS = ${finalCorrectionsJson};
 async function init() {
   if (SERVER_SUBMITTED) {
     finalized = true;
-    if (SERVER_RESULTS.length) results = SERVER_RESULTS;
-    if (SERVER_BOOKMARKS.length) bookmarks = new Set(SERVER_BOOKMARKS);
-    if (Object.keys(SERVER_CORRECTIONS).length) corrections = SERVER_CORRECTIONS;
-    computeAndShowResults();
-    const statusEl = document.getElementById('submitStatus');
-    if (statusEl) statusEl.textContent = '✓ Results submitted successfully!';
+    // Local state (loaded above via loadState()) wins when present — it may
+    // include review edits that haven't been re-submitted yet. Server data is
+    // only used as a fallback (new device / cleared cache).
+    if (results.length === 0 && SERVER_RESULTS.length) results = SERVER_RESULTS;
+    if (bookmarks.size === 0 && SERVER_BOOKMARKS.length) bookmarks = new Set(SERVER_BOOKMARKS);
+    if (Object.keys(corrections).length === 0 && Object.keys(SERVER_CORRECTIONS).length) corrections = SERVER_CORRECTIONS;
+
+    if (reviewMode && EXAM_MODE) {
+      // Resume exactly where the reviewer left off instead of resetting to Q1
+      // or bouncing back to the results screen.
+      if (current < 0 || current >= QUESTIONS.length) current = 0;
+      populateResultsDom(getStats());
+      document.getElementById('resultsCard').classList.remove('show');
+      document.getElementById('questionCard').style.display = '';
+      document.querySelector('.nav').style.display = '';
+      document.querySelector('.qnav-wrap').style.display = '';
+      render();
+    } else {
+      computeAndShowResults();
+      const statusEl = document.getElementById('submitStatus');
+      if (statusEl) statusEl.textContent = '✓ Results submitted successfully!';
+    }
     return;
   }
   const hasPending = await checkPending();
