@@ -95,6 +95,7 @@ app.post('/create-quiz', (req, res) => {
     examEndsAt: null,        // set once the student actually opens the quiz
     submitted: false,
     submittedAt: null,
+    reviewed: false,        // true once the one-time post-submit Review has been submitted
     finalResults: null,
     finalBookmarks: null,
     finalCorrections: null,
@@ -175,9 +176,12 @@ app.post('/submit/:id', async (req, res) => {
   // Persist the final state server-side. The quiz is no longer deleted on
   // submit — it stays until TTL_MS naturally expires, so refreshing (or
   // opening the link again on the same session) shows the review instead
-  // of "Quiz Expired".
+  // of "Quiz Expired". If this quiz was already submitted once, this call is
+  // the one-time Review completing.
+  const wasAlreadySubmitted = !!quiz.submitted;
   quiz.submitted       = true;
   quiz.submittedAt     = Date.now();
+  if (wasAlreadySubmitted) quiz.reviewed = true;
   quiz.finalResults    = Array.isArray(req.body.full_results) ? req.body.full_results : null;
   quiz.finalBookmarks  = Array.isArray(req.body.bookmarks) ? req.body.bookmarks.map(b => b.number) : [];
   quiz.finalCorrections = Array.isArray(req.body.corrections)
@@ -285,6 +289,7 @@ function quizPage(id, quiz) {
   const tokenJson     = JSON.stringify(quiz.sessionToken);
   const examEndsAtJs        = quiz.examEndsAt ? String(quiz.examEndsAt) : 'null';
   const submittedJs         = quiz.submitted ? 'true' : 'false';
+  const reviewedJs          = quiz.reviewed ? 'true' : 'false';
   const finalResultsJson    = JSON.stringify(quiz.finalResults || []);
   const finalBookmarksJson  = JSON.stringify(quiz.finalBookmarks || []);
   const finalCorrectionsJson = JSON.stringify(quiz.finalCorrections || {});
@@ -538,7 +543,7 @@ function quizPage(id, quiz) {
       <div class="stat"><div class="stat-val s" id="statSkipped">0</div><div class="stat-label">SKIPPED</div></div>
       <div class="stat"><div class="stat-val b" id="statBookmarks">0</div><div class="stat-label">BOOKMARKED</div></div>
     </div>
-    ${quiz.timeMinutes > 0 ? '<button class="btn-review" id="reviewBtn" onclick="enterReview()">📝 Review Answers</button>' : ''}
+    ${quiz.timeMinutes > 0 && !quiz.reviewed ? '<button class="btn-review" id="reviewBtn" onclick="enterReview()">📝 Review Answers</button>' : ''}
     <div class="submit-status" id="submitStatus">Submitting…</div>
   </div>
 </div>
@@ -838,7 +843,7 @@ function confirmSubmit() { closeModal(); doSubmit(); }
 // Only meaningful for timed (EXAM_MODE) quizzes — untimed quizzes already show
 // full feedback live, so once submitted there's nothing left to review.
 function enterReview() {
-  if (!EXAM_MODE) return;
+  if (!EXAM_MODE || SERVER_REVIEWED) return;
   reviewMode = true;
   reviewDirty = false;
   current = 0;
@@ -857,6 +862,8 @@ function exitReviewToResults() {
   saveState();
   populateResultsDom(getStats());
   showResultsScreen();
+  const rb = document.getElementById('reviewBtn');
+  if (rb) rb.remove();
 }
 
 // ── Submission ────────────────────────────────────────────────────────────────
@@ -937,6 +944,8 @@ async function submitReviewUpdates() {
   saveState();
   populateResultsDom(stats);
   showResultsScreen();
+  const rb = document.getElementById('reviewBtn');
+  if (rb) rb.remove();
 
   try { localStorage.setItem(PENDING_KEY, JSON.stringify(payload)); } catch(e) {}
   await attemptSubmitAndFinalize(payload);
@@ -1082,6 +1091,7 @@ loadState();
 // refresh, or the same session opened on another device), rebuild the review
 // from the server's saved copy instead of taking the quiz again.
 const SERVER_SUBMITTED   = ${submittedJs};
+const SERVER_REVIEWED    = ${reviewedJs};
 const SERVER_RESULTS     = ${finalResultsJson};
 const SERVER_BOOKMARKS   = ${finalBookmarksJson};
 const SERVER_CORRECTIONS = ${finalCorrectionsJson};
@@ -1096,7 +1106,7 @@ async function init() {
     if (bookmarks.size === 0 && SERVER_BOOKMARKS.length) bookmarks = new Set(SERVER_BOOKMARKS);
     if (Object.keys(corrections).length === 0 && Object.keys(SERVER_CORRECTIONS).length) corrections = SERVER_CORRECTIONS;
 
-    if (reviewMode && EXAM_MODE) {
+    if (reviewMode && EXAM_MODE && !SERVER_REVIEWED) {
       // Resume exactly where the reviewer left off instead of resetting to Q1
       // or bouncing back to the results screen.
       if (current < 0 || current >= QUESTIONS.length) current = 0;
@@ -1108,6 +1118,7 @@ async function init() {
       render();
     } else {
       computeAndShowResults();
+      if (SERVER_REVIEWED) { const rb = document.getElementById('reviewBtn'); if (rb) rb.remove(); }
       const statusEl = document.getElementById('submitStatus');
       if (statusEl) statusEl.textContent = '✓ Results submitted successfully!';
     }
